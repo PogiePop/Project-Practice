@@ -22,10 +22,13 @@ public class PlanBatch {
     private String unitId;
     private String leaderId;
     private String auditConclusion;
-    private String unitName;  // JOIN 查询得到的单位名称
+    private String unitName;
+    private java.math.BigDecimal projectAmount;
+    private java.math.BigDecimal actualAmount;
+    private String findings;
+    private String fundSource;
     private LocalDateTime updateTime;
 
-    // Getters
     public String getUnitId() { return unitId; }
     public void setUnitId(String unitId) { this.unitId = unitId; }
     public String getLeaderId() { return leaderId; }
@@ -34,6 +37,14 @@ public class PlanBatch {
     public void setAuditConclusion(String auditConclusion) { this.auditConclusion = auditConclusion; }
     public String getUnitName() { return unitName; }
     public void setUnitName(String unitName) { this.unitName = unitName; }
+    public java.math.BigDecimal getProjectAmount() { return projectAmount; }
+    public void setProjectAmount(java.math.BigDecimal projectAmount) { this.projectAmount = projectAmount; }
+    public java.math.BigDecimal getActualAmount() { return actualAmount; }
+    public void setActualAmount(java.math.BigDecimal actualAmount) { this.actualAmount = actualAmount; }
+    public String getFindings() { return findings; }
+    public void setFindings(String findings) { this.findings = findings; }
+    public String getFundSource() { return fundSource; }
+    public void setFundSource(String fundSource) { this.fundSource = fundSource; }
 
     // Other Getters and Setters
     public Long getId() { return id; }

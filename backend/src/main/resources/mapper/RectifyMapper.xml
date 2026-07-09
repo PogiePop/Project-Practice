@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.RectifyMapper">
+    <select id="findByBatchId" resultType="map">SELECT * FROM audit_rectify_ledger WHERE batch_id=#{batchId}</select>
+    <select id="findByUnitId" resultType="map">SELECT * FROM audit_rectify_ledger WHERE unit_id=#{unitId}</select>
+    <select id="countPendingByUnitId" resultType="int">SELECT COUNT(*) FROM audit_rectify_ledger WHERE unit_id=#{unitId} AND rectify_status!=2</select>
+    <insert id="insertRejectionRectify">INSERT INTO audit_rectify_ledger (rectify_id, batch_id, unit_id, issue_description, issue_category, rectify_status, responsible_person, deadline) VALUES (#{rectifyId},#{batchId},#{unitId},#{issue},'审批驳回',0,#{responsible},DATE_ADD(NOW(), INTERVAL 30 DAY))</insert>
+    <delete id="deleteRejectionRectifies">DELETE FROM audit_rectify_ledger WHERE batch_id=#{batchId} AND issue_category='审批驳回'</delete>
+    <update id="markRejectionResolved">UPDATE audit_rectify_ledger SET rectify_status=2, rectify_progress='已整改（重新提交后自动标记）' WHERE batch_id=#{batchId} AND issue_category='审批驳回' AND rectify_status=0</update>
+</mapper>

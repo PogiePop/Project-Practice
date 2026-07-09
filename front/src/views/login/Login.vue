@@ -57,9 +57,12 @@ const handleKeyDown = (e) => {
 <template>
   <div class="login-container" @keydown="handleKeyDown">
     <div class="login-bg">
+      <div class="bg-gradient"></div>
+      <div class="bg-dots"></div>
       <div class="bg-shape shape-1"></div>
       <div class="bg-shape shape-2"></div>
       <div class="bg-shape shape-3"></div>
+      <div class="bg-shape shape-4"></div>
     </div>
     <div class="login-card">
       <div class="login-header">
@@ -133,24 +136,45 @@ const handleKeyDown = (e) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background: #0a0e27;
   position: relative;
   overflow: hidden;
 }
 .login-bg { position: absolute; inset: 0; pointer-events: none; }
-.bg-shape { position: absolute; border-radius: 50%; opacity: 0.08; background: #fff; }
-.shape-1 { width: 500px; height: 500px; top: -250px; right: -150px; animation: float 20s ease-in-out infinite; }
-.shape-2 { width: 300px; height: 300px; bottom: -100px; left: -100px; animation: float 25s ease-in-out infinite reverse; }
-.shape-3 { width: 200px; height: 200px; top: 50%; left: 10%; animation: float 18s ease-in-out infinite; }
+.bg-gradient {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 20% 50%, #1a237e 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 20%, #0d47a1 0%, transparent 50%),
+              radial-gradient(ellipse at 50% 80%, #1a237e 0%, transparent 50%),
+              linear-gradient(135deg, #0a0e27 0%, #1a1a3e 50%, #0d1b3e 100%);
+  animation: bgShift 15s ease-in-out infinite alternate;
+  background-size: 200% 200%;
+}
+@keyframes bgShift {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 50% 100%; }
+}
+.bg-dots {
+  position: absolute; inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.bg-shape { position: absolute; border-radius: 50%; opacity: 0.06; background: #fff; filter: blur(80px); }
+.shape-1 { width: 600px; height: 600px; top: -300px; right: -200px; animation: float 20s ease-in-out infinite; }
+.shape-2 { width: 400px; height: 400px; bottom: -150px; left: -150px; animation: float 25s ease-in-out infinite reverse; }
+.shape-3 { width: 250px; height: 250px; top: 40%; left: 5%; animation: float 18s ease-in-out infinite; }
+.shape-4 { width: 350px; height: 350px; top: 10%; right: 30%; animation: float 22s ease-in-out infinite; opacity: 0.04; }
 @keyframes float {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  33% { transform: translate(30px, -30px) rotate(5deg); }
-  66% { transform: translate(-20px, 20px) rotate(-3deg); }
+  0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  33% { transform: translate(40px, -40px) rotate(8deg) scale(1.1); }
+  66% { transform: translate(-30px, 30px) rotate(-5deg) scale(0.9); }
 }
 .login-card {
-  width: 420px; background: rgba(255,255,255,0.95); border-radius: 16px;
-  padding: 48px 40px 36px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  position: relative; z-index: 1; backdrop-filter: blur(10px);
+  width: 420px; background: rgba(255,255,255,0.85); border-radius: 20px;
+  padding: 48px 40px 36px; box-shadow: 0 8px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1);
+  position: relative; z-index: 1; backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 .login-header { text-align: center; margin-bottom: 36px; }
 .system-icon {

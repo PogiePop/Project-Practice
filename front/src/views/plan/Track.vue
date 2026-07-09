@@ -88,6 +88,24 @@ const handleApproveChange = async (row) => {
     } catch {}
 }
 
+// 审计记录表单
+const showAuditRecordForm = ref(false)
+const batchBudget = ref(null)
+const auditRecord = reactive({ actualAmount: null })
+const openAuditForm = async () => {
+    showAuditRecordForm.value = !showAuditRecordForm.value
+    if (showAuditRecordForm.value) {
+        try { const data = await planApi.getPlanBatch(currentApproval.batchId); batchBudget.value = data?.projectAmount || 0 } catch { batchBudget.value = 0 }
+    }
+}
+const handleSaveAuditRecord = async () => {
+    try {
+        await planApi.saveAuditRecord(currentApproval.batchId, { actualAmount: auditRecord.actualAmount })
+        ElMessage.success('实际使用金额已保存')
+        showAuditRecordForm.value = false
+    } catch {}
+}
+
 const isRejected = () => steps.value.some(s => s.status === 'REJECTED')
 
 const handleResubmit = async () => {
@@ -152,6 +170,24 @@ onMounted(async () => {
                 <div v-if="isRejected()" style="margin-top:12px;padding:16px;background:#fef0f0;border-radius:8px;border:1px solid #fde2e2">
                     <p style="color:#f56c6c;margin:0 0 10px">⚠️ 该计划已被驳回，已自动生成整改记录。修改后请重新提交。</p>
                     <el-button type="primary" @click="handleResubmit">🔄 重新提交审批</el-button>
+                </div>
+                <!-- 审计记录表单 -->
+                <div style="margin-top:16px">
+                    <el-button @click="openAuditForm" size="small" type="warning" plain>
+                        📝 {{ showAuditRecordForm ? '收起审计记录' : '填写审计记录' }}
+                    </el-button>
+                </div>
+                <div v-if="showAuditRecordForm" style="margin-top:12px;padding:16px;background:#fafbfc;border-radius:8px;border:1px solid #ebeef5">
+                    <el-form :model="auditRecord" label-width="120px" size="small">
+                        <el-form-item label="实际使用金额(万)">
+                            <el-input-number v-model="auditRecord.actualAmount" :min="0" :precision="2" style="width:100%" />
+                            <div v-if="batchBudget != null" style="margin-top:4px;font-size:12px;color:#909399">
+                                预算金额：<b style="color:#409EFF">{{ batchBudget }}</b> 万元
+                                <span v-if="auditRecord.actualAmount > batchBudget" style="color:#f56c6c"> ⚠️ 超出预算！</span>
+                            </div>
+                        </el-form-item>
+                        <el-form-item><el-button type="primary" @click="handleSaveAuditRecord">确认实际使用金额</el-button></el-form-item>
+                    </el-form>
                 </div>
             </div>
 

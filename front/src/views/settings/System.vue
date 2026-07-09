@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Bell, Moon, Sunny, DataBoard, ChatLineSquare } from '@element-plus/icons-vue'
 import { commonApi } from '@/api'
@@ -13,6 +13,17 @@ const notifySettings = reactive({
 const uiSettings = reactive({
     theme: 'light', tableDensity: 'medium', pageSize: 20, showBreadcrumb: true, autoRefresh: true, refreshInterval: 60
 })
+
+const applyTheme = (t) => {
+    if (t === 'dark') {
+        document.documentElement.style.filter = 'invert(0.9) hue-rotate(180deg)'
+        document.querySelectorAll('img, video, .el-avatar img').forEach(el => el.style.filter = 'invert(1) hue-rotate(180deg)')
+    } else {
+        document.documentElement.style.filter = ''
+        document.querySelectorAll('img, video').forEach(el => el.style.filter = '')
+    }
+}
+watch(() => uiSettings.theme, applyTheme)
 
 // 从后端加载设置
 const loadSettings = async () => {
@@ -28,7 +39,7 @@ const loadSettings = async () => {
         if (data?.ui) {
             try {
                 const u = typeof data.ui === 'string' ? parseMapString(data.ui) : data.ui
-                if (u) Object.assign(uiSettings, u)
+                if (u) { Object.assign(uiSettings, u); applyTheme(uiSettings.theme) }
             } catch {}
         }
     } catch {}

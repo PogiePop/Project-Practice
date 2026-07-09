@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.ApprovalMapper">
+    <select id="getSteps" resultType="map">
+        SELECT step_order as stepOrder, step_name as stepName, status, approver_name as approverName, comment, operate_time as operateTime FROM approval_step WHERE batch_id=#{batchId} ORDER BY step_order
+    </select>
+    <update id="updateStep">
+        UPDATE approval_step SET status=#{status}, approver_name=#{approverName}, comment=#{comment}, operate_time=NOW() WHERE batch_id=#{batchId} AND step_order=#{stepOrder}
+    </update>
+    <select id="getHistory" resultType="map">SELECT * FROM approval_history WHERE batch_id=#{batchId} ORDER BY submit_time DESC</select>
+    <select id="getChanges" resultType="map">SELECT * FROM plan_change WHERE batch_id=#{batchId} ORDER BY apply_time DESC</select>
+    <select id="getAllHistory" resultType="map">SELECT submit_by, COUNT(*) as cnt FROM approval_history GROUP BY submit_by ORDER BY cnt DESC</select>
+    <insert id="insertChange">
+        INSERT INTO plan_change (change_id, batch_id, change_type, change_type_name, reason, change_data, approval_status, approval_status_name, apply_time)
+        VALUES (#{changeId}, #{batchId}, #{changeType}, #{changeTypeName}, #{reason}, #{changeData}, 1, '待确认', NOW())
+    </insert>
+    <insert id="insertStep">
+        INSERT INTO approval_step (batch_id, step_order, step_name, status, approver_name, comment, operate_time)
+        VALUES (#{batchId}, #{stepOrder}, #{stepName}, #{status}, #{approverName}, #{comment}, NOW())
+    </insert>
+    <insert id="insertHistory">
+        INSERT INTO approval_history (approval_id, batch_id, flow_type, status, submit_by, submit_time, result)
+        VALUES (#{approvalId}, #{batchId}, 'NEW_PLAN', '进行中', #{submitBy}, NOW(), #{result})
+    </insert>
+    <update id="approveChange">UPDATE plan_change SET approval_status=0, approval_status_name='已确认' WHERE change_id=#{changeId}</update>
+</mapper>

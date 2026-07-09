@@ -2,7 +2,7 @@
 import { formatDateYYYYMMDD } from '@/utils/date';
 import { readExcel, exportExcel, downloadImportTemplate } from '@/utils/excel';
 import { ElMessage } from 'element-plus';
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, computed } from 'vue'
 import { planApi, commonApi, objectApi } from '@/api'
 
 // ============ 筛选 ============
@@ -12,6 +12,7 @@ let now = new Date().getFullYear();
 for (let i = 9; i >= 0; i--) allYear.push(now - i);
 const allType = ['经济责任审计', '财务收支审计', '专项审计', '工程审计'];
 const allState = ['已审批', '审批中', '已归档', '草稿'];
+const fundSources = ['中央财政', '省级财政', '市级财政', '校内自筹', '社会捐赠', '科研经费', '其他'];
 
 const getProgressStatus = (val) => {
     if (val > 0 && val <= 50) return 'exception'
@@ -24,7 +25,7 @@ const getProgressStatus = (val) => {
 const dialogVisible = ref(false);
 const dialogTitle = ref('新建年度审计计划批次');
 const isEdit = ref(false);
-const newPlanInfo = reactive({ id: '', name: '', type: 0, startDate: '', endDate: '', auditLeader: '', remark: '', unitId: '', leaderId: '' });
+const newPlanInfo = reactive({ id: '', name: '', type: 0, startDate: '', endDate: '', remark: '', unitId: '', leaderId: '', projectAmount: null, fundSource: '', projectCount: 1 });
 const formRef = ref(null);
 const clearNewPlanInfo = () => {
     formRef.value?.clearValidate();
@@ -36,23 +37,35 @@ const loadUnitsAndLeaders = async () => {
     try { const d = await objectApi.getUnits({ pageSize: 200 }); unitList.value = d?.list || [] } catch { }
     try { const d = await objectApi.getLeaders({ pageSize: 200 }); leaderList.value = d?.list || [] } catch { }
 }
+// 根据选中单位过滤可选干部
+const filteredLeaders = computed(() => {
+    if (!newPlanInfo.unitId) return leaderList.value
+    const unit = unitList.value.find(u => u.unitId === newPlanInfo.unitId)
+    if (!unit) return leaderList.value
+    return leaderList.value.filter(l => l.currentUnitName === unit.unitName && l.isActive === 1)
+})
 const addNewPlan = () => { dialogTitle.value = '新建年度审计计划批次'; isEdit.value = false; clearNewPlanInfo(); loadAuditors(); loadUnitsAndLeaders(); dialogVisible.value = true; };
-const editPlan = (row) => {
+const editPlan = async (row) => {
     dialogTitle.value = '编辑年度审计计划批次'; isEdit.value = true
+    await loadUnitsAndLeaders(); await loadAuditors()
     newPlanInfo.id = row.date; newPlanInfo.name = row.name; newPlanInfo.type = row.type
-    newPlanInfo.auditLeader = row.auditLeader || ''
     newPlanInfo.unitId = row.unitId || ''; newPlanInfo.leaderId = row.leaderId || ''
     newPlanInfo.remark = row.remark || ''
-    // 从 during 字段解析日期
+    newPlanInfo.state = row.state; newPlanInfo.progress = row.progress
+    newPlanInfo.projectCount = row.num || 1
+    newPlanInfo.projectAmount = row.projectAmount || null
+    newPlanInfo.fundSource = row.fundSource || ''
     const parts = (row.during || '').split('~').map(s => s.trim())
     newPlanInfo.startDate = parts[0] || ''
     newPlanInfo.endDate = parts[1] || ''
-    loadAuditors(); loadUnitsAndLeaders(); dialogVisible.value = true;
+    dialogVisible.value = true;
 };
 const formRules = reactive({
     id: [{ required: true, message: '请填写计划编号', trigger: 'blur' }],
     name: [{ required: true, message: '请填写计划名称', trigger: 'blur' }],
     type: [{ required: true, message: '请选择计划类型', trigger: 'change' }],
+    leaderId: [{ required: true, message: '请选择经责干部', trigger: 'change' }],
+    unitId: [{ required: true, message: '请选择被审计单位', trigger: 'change' }],
 });
 
 const submitPlan = async () => {
@@ -64,9 +77,10 @@ const submitPlan = async () => {
         const yr = sd ? parseInt(sd.slice(0, 4)) : new Date().getFullYear()
         const payload = {
             batchName: newPlanInfo.name, planType: newPlanInfo.type, year: yr,
-            startDate: sd, endDate: ed,
-            auditLeader: newPlanInfo.auditLeader || undefined, remark: newPlanInfo.remark || undefined,
-            unitId: newPlanInfo.unitId || undefined, leaderId: newPlanInfo.leaderId || undefined
+            projectCount: newPlanInfo.projectCount || 1, startDate: sd, endDate: ed,
+            remark: newPlanInfo.remark || undefined,
+            unitId: newPlanInfo.unitId || undefined, leaderId: newPlanInfo.leaderId || undefined,
+            projectAmount: newPlanInfo.projectAmount || undefined, fundSource: newPlanInfo.fundSource || undefined
         }
         if (isEdit.value) { await planApi.updatePlanBatch(newPlanInfo.id, payload) }
         else { await planApi.createPlanBatch({ ...payload, batchId: newPlanInfo.id }) }
@@ -99,7 +113,9 @@ const fetchTableData = async () => {
             progress: row.progress ?? 0,
             unitId: row.unitId || '',
             unitName: row.unitName || '',
-            leaderId: row.leaderId || ''
+            leaderId: row.leaderId || '',
+            projectAmount: row.projectAmount || null,
+            fundSource: row.fundSource || ''
         }))
     } catch (err) { console.error('获取计划列表失败:', err) } finally { loading.value = false }
 };
@@ -117,18 +133,26 @@ const deletePlanBatch = async (batchId) => {
 // ============ 导出 ============
 const planExportColumns = [
     { prop: 'date', label: '计划编号' }, { prop: 'name', label: '计划名称' }, { prop: 'type', label: '计划类型' },
-    { prop: 'year', label: '年度' }, { prop: 'unitName', label: '被审计单位' },
-    { prop: 'num', label: '项目数' }, { prop: 'during', label: '实施周期' },
-    { prop: 'auditLeader', label: '审计组长' },
+    { prop: 'year', label: '年度' }, { prop: 'unitName', label: '被审计单位' }, { prop: 'leaderId', label: '经责干部' },
+    { prop: 'num', label: '项目数' }, { prop: 'projectAmount', label: '项目金额(万)' }, { prop: 'fundSource', label: '资金来源' },
+    { prop: 'during', label: '实施周期' }, { prop: 'remark', label: '备注' },
     { prop: 'state', label: '审批状态' }, { prop: 'progress', label: '进度' },
 ];
 const handleExportPlanList = () => {
     const exportData = tableData.value.map(row => ({
         date: row.date, name: row.name, type: allType[row.type] || '未知', year: row.year,
-        unitName: row.unitName || '', num: row.num, during: row.during,
-        auditLeader: row.auditLeader || '', state: allState[row.state] || '未知', progress: row.progress + '%'
+        unitName: row.unitName || '', leaderId: row.leaderId || '', num: row.num,
+        projectAmount: row.projectAmount || '', fundSource: row.fundSource || '',
+        during: row.during, remark: row.remark || '', state: allState[row.state] || '未知', progress: row.progress + '%'
     }))
     exportExcel(exportData, `年度审计计划清单_${now}`, planExportColumns)
+    // 导出后归档（仅进度100%的计划），然后刷新表格
+    const fullDone = tableData.value.filter(r => r.progress >= 100).map(r => r.date)
+    if (fullDone.length) {
+        planApi.archiveBatchList(fullDone).finally(() => fetchTableData())
+    } else {
+        fetchTableData()
+    }
 };
 
 // ============ 导入 ============
@@ -139,9 +163,12 @@ const importFileName = ref(''); const importMode = ref('plan'); const rawImportF
 const planImportTemplateFields = [
     { label: '计划编号', example: 'JH2026001', required: true }, { label: '计划名称', example: '2026年度经济责任审计计划', required: true },
     { label: '计划类型', example: '0-经济责任/1-财务收支/2-专项/3-工程', required: true }, { label: '年度', example: '2026', required: true },
-    { label: '被审计单位编码', example: 'UNIT001', required: false }, { label: '项目数', example: '8', required: false },
-    { label: '实施周期', example: '2026-01-01 ~ 2026-06-30', required: false }, { label: '审计组长', example: '张三', required: false },
+    { label: '被审计单位', example: 'XX学院', required: false }, { label: '经责干部', example: '张XX', required: false },
+    { label: '项目数', example: '8', required: false }, { label: '项目金额(万)', example: '500', required: false },
+    { label: '资金来源', example: '中央财政', required: false },
+    { label: '实施周期', example: '2026-01-01 ~ 2026-06-30', required: false },
     { label: '审批状态', example: '3-草稿/1-审批中/0-已审批/2-已归档', required: false }, { label: '进度', example: '0', required: false },
+    { label: '备注', example: '', required: false },
 ];
 const projectImportTemplateFields = [
     { label: '项目名称', example: 'XX学院经济责任审计', required: true }, { label: '审计对象编码', example: 'UNIT001', required: true },
@@ -150,22 +177,49 @@ const projectImportTemplateFields = [
     { label: '审计组长工号', example: 'U001', required: false }, { label: '是否委托中介', example: '0-否/1-是', required: false },
     { label: '备注', example: '', required: false },
 ];
-const openImportDialog = (row) => { currentBatchForImport.value = row; importMode.value = row ? 'project' : 'plan'; importFileName.value = ''; importPreviewData.value = []; importPreviewHeader.value = []; importVisible.value = true; };
+const openImportDialog = (row) => { currentBatchForImport.value = row; importMode.value = row ? 'project' : 'plan'; importFileName.value = ''; importPreviewData.value = []; importPreviewHeader.value = []; loadUnitsAndLeaders(); importVisible.value = true; };
+const resolveUnitId = (val) => { if (!val) return undefined; const u = unitList.value.find(x => x.unitId === val || x.unitName === val); return u ? u.unitId : val; };
+const resolveLeaderId = (val) => { if (!val) return undefined; const l = leaderList.value.find(x => x.leaderId === val || x.leaderName === val); return l ? l.leaderId : val; };
 const downloadImportFileTemplate = () => { downloadImportTemplate(importMode.value === 'plan' ? '计划批次导入模板' : '审计项目批量导入模板', importMode.value === 'plan' ? planImportTemplateFields : projectImportTemplateFields); };
 const handleImportFile = async (file) => { importFileName.value = file.name; rawImportFile.value = file.raw; try { const r = await readExcel(file.raw); importPreviewHeader.value = r.header; importPreviewData.value = r.data; ElMessage.success(`成功读取 ${r.data.length} 条数据`) } catch (err) { ElMessage.error(err.message || '文件读取失败'); importPreviewData.value = []; importPreviewHeader.value = []; } };
 const planTypeMap = { '经济责任审计': 0, '财务收支审计': 1, '专项审计': 2, '工程审计': 3 };
 const stateMap = { '草稿': 3, '审批中': 1, '已审批': 0, '已归档': 2 };
+const stateMapReverse = { 3: 0, 1: 1, 0: 0, 2: 2, 4: 4 };
 
 const confirmImport = async () => {
     if (importPreviewData.value.length === 0) { ElMessage.warning('没有可导入的数据'); return; }
     try {
         if (importMode.value === 'plan') {
-            const batches = importPreviewData.value.map(row => {
+            let added = 0, updated = 0
+            const existing = new Set(tableData.value.map(r => r.date))
+            for (const row of importPreviewData.value) {
                 const typeRaw = row['计划类型'] ?? row['类型'] ?? '0'
-                return { batchName: row['计划名称'] || row['名称'] || '未命名计划', planType: planTypeMap[typeRaw] ?? parseInt(typeRaw) ?? 0, year: parseInt(row['年度']) || now, startDate: (row['实施周期'] || '').split('~')[0]?.trim() || `${now}-01-01`, endDate: (row['实施周期'] || '').split('~')[1]?.trim() || `${now}-12-31`, unitId: row['被审计单位编码'] || undefined, auditLeader: row['审计组长'] || undefined }
-            })
-            await planApi.batchCreatePlanBatches({ batches })
-            ElMessage.success(`成功导入 ${batches.length} 个计划批次`)
+                const stateRaw = row['审批状态'] ?? row['状态'] ?? '3'
+                const batchId = row['计划编号'] || row['编号'] || ''
+                const payload = {
+                    batchName: row['计划名称'] || row['名称'] || '未命名计划',
+                    planType: planTypeMap[typeRaw] ?? parseInt(typeRaw) ?? 0,
+                    year: parseInt(row['年度']) || now,
+                    projectCount: parseInt(row['项目数']) || 1,
+                    startDate: (row['实施周期'] || '').split('~')[0]?.trim() || `${now}-01-01`,
+                    endDate: (row['实施周期'] || '').split('~')[1]?.trim() || `${now}-12-31`,
+                    unitId: resolveUnitId(row['被审计单位编码'] || row['被审计单位'] || row['单位编码'] || row['单位']),
+                    leaderId: resolveLeaderId(row['经责干部'] || row['经责干部编码'] || row['干部编码'] || row['干部']),
+                    approvalStatus: stateMap[stateRaw] ?? parseInt(stateRaw) ?? 3,
+                    progress: parseInt(row['进度']) || 0,
+                    projectAmount: parseFloat(row['项目金额(万)']) || undefined,
+                    fundSource: row['资金来源'] || undefined,
+                    remark: row['备注'] || undefined
+                }
+                if (batchId && existing.has(batchId)) {
+                    await planApi.updatePlanBatch(batchId, payload); updated++
+                } else {
+                    await planApi.createPlanBatch({ ...payload, batchId: batchId || undefined }); added++
+                }
+            }
+            if (added || updated) commonApi.sendImportMsg('计划批次', added, updated).then(() => window.dispatchEvent(new Event('msg-refresh')))
+            importVisible.value = false; fetchTableData(); fetchSummary()
+            ElMessage.success(`导入完成：新增 ${added} 条，更新 ${updated} 条`)
         } else {
             if (rawImportFile.value) { const fd = new FormData(); fd.append('file', rawImportFile.value); await planApi.importProjects(currentBatchForImport.value.date, fd) }
             currentBatchForImport.value.num = (currentBatchForImport.value.num || 0) + importPreviewData.value.length
@@ -206,10 +260,10 @@ const openPenetrate = async (row) => { penetrateData.value = { batchId: row.date
 
 // ============ 变更 ============
 const changeVisible = ref(false); const currentBatchForChange = ref(null);
-const changeForm = reactive({ changeType: 0, reason: '', batchName: '', planType: 0, startDate: '', endDate: '', auditLeader: '', unitId: '', leaderId: '', remark: '' });
-const changeTypes = [{ value: 0, label: '修改计划信息' }, { value: 1, label: '调减项目' }, { value: 2, label: '修改周期' }, { value: 3, label: '其他变更' }];
-const openChangeDialog = (row) => { loadAuditors(); loadUnitsAndLeaders(); currentBatchForChange.value = row; changeForm.changeType = 0; changeForm.reason = ''; changeForm.batchName = row.name; changeForm.planType = row.type; const parts = (row.during || '').split('~').map(s => s.trim()); changeForm.startDate = parts[0] || ''; changeForm.endDate = parts[1] || ''; changeForm.auditLeader = row.auditLeader || ''; changeForm.unitId = row.unitId || ''; changeForm.leaderId = row.leaderId || ''; changeForm.remark = row.remark || ''; changeVisible.value = true; };
-const submitChange = async () => { if (!changeForm.reason) { ElMessage.warning('请填写变更原因'); return; } try { const payload = { changeType: changeForm.changeType, reason: changeForm.reason, batchName: changeForm.batchName, planType: changeForm.planType, startDate: changeForm.startDate ? new Date(changeForm.startDate).toISOString().slice(0,10) : '', endDate: changeForm.endDate ? new Date(changeForm.endDate).toISOString().slice(0,10) : '', auditLeader: changeForm.auditLeader, unitId: changeForm.unitId, leaderId: changeForm.leaderId, remark: changeForm.remark }; await planApi.createPlanChange(currentBatchForChange.value.date, payload); ElMessage.success('变更已提交，请在审批跟踪中确认'); changeVisible.value = false; } catch { } };
+const changeForm = reactive({ changeType: 0, reason: '', batchName: '', planType: 0, startDate: '', endDate: '', unitId: '', leaderId: '', projectAmount: null, fundSource: '', remark: '' });
+const changeTypes = [{ value: 0, label: '修改基本信息' }, { value: 1, label: '调整金额预算' }, { value: 2, label: '变更审计对象' }, { value: 3, label: '修改实施周期' }];
+const openChangeDialog = (row) => { loadAuditors(); loadUnitsAndLeaders(); currentBatchForChange.value = row; changeForm.changeType = 0; changeForm.reason = ''; changeForm.batchName = row.name; changeForm.planType = row.type; const parts = (row.during || '').split('~').map(s => s.trim()); changeForm.startDate = parts[0] || ''; changeForm.endDate = parts[1] || ''; changeForm.unitId = row.unitId || ''; changeForm.leaderId = row.leaderId || ''; changeForm.projectAmount = row.projectAmount || null; changeForm.fundSource = row.fundSource || ''; changeForm.remark = row.remark || ''; changeVisible.value = true; };
+const submitChange = async () => { if (!changeForm.reason) { ElMessage.warning('请填写变更原因'); return; } try { const payload = { changeType: changeForm.changeType, reason: changeForm.reason, batchName: changeForm.batchName, planType: changeForm.planType, startDate: changeForm.startDate ? new Date(changeForm.startDate).toISOString().slice(0,10) : '', endDate: changeForm.endDate ? new Date(changeForm.endDate).toISOString().slice(0,10) : '', unitId: changeForm.unitId, leaderId: changeForm.leaderId, projectAmount: changeForm.projectAmount, fundSource: changeForm.fundSource, remark: changeForm.remark }; await planApi.createPlanChange(currentBatchForChange.value.date, payload); ElMessage.success('变更已提交，请在审批跟踪中确认'); changeVisible.value = false; } catch { } };
 
 onMounted(() => { fetchTableData(); fetchSummary() })
 </script>
@@ -290,7 +344,9 @@ onMounted(() => { fetchTableData(); fetchSummary() })
                 <el-table-column prop="unitName" label="被审计单位" width="150" show-overflow-tooltip />
                 <el-table-column prop="year" label="年度" width="80" />
                 <el-table-column prop="num" label="项目数" width="80" align="center" />
-                <el-table-column prop="during" label="实施周期" width="200"><template #default="{ row }">{{
+                <el-table-column prop="projectAmount" label="项目金额(万)" width="120" align="right"><template #default="{ row }">{{ row.projectAmount || '-' }}</template></el-table-column>
+                <el-table-column prop="fundSource" label="资金来源" width="120" show-overflow-tooltip><template #default="{ row }">{{ row.fundSource || '-' }}</template></el-table-column>
+                <el-table-column prop="during" label="实施周期" width="180"><template #default="{ row }">{{
                         formatDateYYYYMMDD(row.during) }}</template></el-table-column>
                 <el-table-column prop="state" label="审批状态" width="90">
                     <template #default="{ row }"><el-tag size="small"
@@ -328,19 +384,17 @@ onMounted(() => { fetchTableData(); fetchSummary() })
                 <el-form-item label="计划类型" prop="type"><el-select v-model="newPlanInfo.type" placeholder="请选择类型"
                         style="width:100%"><el-option v-for="(v, i) in allType" :key="i" :label="v"
                             :value="i" /></el-select></el-form-item>
+                <el-row :gutter="16"><el-col :span="12"><el-form-item label="项目数"><el-input-number v-model="newPlanInfo.projectCount" :min="1" style="width:100%" /></el-form-item></el-col></el-row>
                 <el-form-item label="计划周期"><el-date-picker v-model="newPlanInfo.startDate" type="date"
                         placeholder="开始日期" style="width:48%" /> <span style="margin:0 8px;color:#909399">—</span>
                     <el-date-picker v-model="newPlanInfo.endDate" type="date" placeholder="结束日期" style="width:48%"
                         :disabled-date="(t) => newPlanInfo.startDate && t.getTime() < new Date(newPlanInfo.startDate).getTime()" /></el-form-item>
-                <el-form-item label="审计组长"><el-select v-model="newPlanInfo.auditLeader" placeholder="请选择审计组长" clearable
-                        filterable style="width:100%"><el-option v-for="a in auditorList" :key="a.userId"
-                            :label="a.userName" :value="a.userId"><span>{{ a.userName }}</span><span
-                                style="float:right;color:#909399;font-size:12px">可接 {{ a.availableCapacity }}
-                                项</span></el-option></el-select></el-form-item>
-                <el-form-item label="被审计单位"><el-select v-model="newPlanInfo.unitId" placeholder="请选择被审计单位" clearable filterable style="width:100%"><el-option v-for="u in unitList" :key="u.unitId" :label="u.unitName" :value="u.unitId" /></el-select></el-form-item>
-                <el-form-item label="经责干部"><el-select v-model="newPlanInfo.leaderId" placeholder="请选择经责干部（可选）" clearable filterable style="width:100%"><el-option v-for="l in leaderList" :key="l.leaderId" :label="l.leaderName + ' - ' + l.currentPosition" :value="l.leaderId" /></el-select></el-form-item>
+                <el-form-item label="被审计单位" prop="unitId"><el-select v-model="newPlanInfo.unitId" placeholder="请选择被审计单位" filterable style="width:100%"><el-option v-for="u in unitList" :key="u.unitId" :label="u.unitName" :value="u.unitId" /></el-select></el-form-item>
+                <el-form-item label="经责干部" prop="leaderId"><el-select v-model="newPlanInfo.leaderId" placeholder="请选择经责干部" filterable style="width:100%"><el-option v-for="l in filteredLeaders" :key="l.leaderId" :label="l.leaderName + ' - ' + l.currentPosition" :value="l.leaderId" /></el-select></el-form-item>
+                <el-row :gutter="16"><el-col :span="12"><el-form-item label="项目金额(万)"><el-input-number v-model="newPlanInfo.projectAmount" :min="0" :precision="2" style="width:100%" /></el-form-item></el-col><el-col :span="12"><el-form-item label="资金来源"><el-select v-model="newPlanInfo.fundSource" placeholder="选择来源" clearable filterable allow-create style="width:100%"><el-option v-for="s in fundSources" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col></el-row>
                 <el-form-item label="备注"><el-input v-model="newPlanInfo.remark" type="textarea" :rows="3"
                         placeholder="备注信息" /></el-form-item>
+                <el-row v-if="isEdit" :gutter="16"><el-col :span="12"><el-form-item label="审批状态"><el-input :model-value="allState[stateMapReverse[newPlanInfo.state]] || newPlanInfo.state" disabled /></el-form-item></el-col><el-col :span="12"><el-form-item label="进度"><el-input :model-value="newPlanInfo.progress + '%'" disabled /></el-form-item></el-col></el-row>
             </el-form>
             <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary"
                     @click="submitPlan">确认提交</el-button></template>
@@ -429,11 +483,9 @@ onMounted(() => { fetchTableData(); fetchSummary() })
                             v-for="f in (penetrateData.guidingFiles || [])" :key="f.fileName" size="small"
                             style="margin-right:4px">{{ f.fileName }}</el-tag></el-descriptions-item></el-descriptions>
                 <el-row :gutter="16" style="margin-top:16px">
-                    <el-col :span="6"><el-statistic title="底稿总数"
+                    <el-col :span="6"><el-statistic title="底稿总数(审批次数)"
                             :value="penetrateData.workingPapers?.totalCount || 0" /></el-col>
-                    <el-col :span="6"><el-statistic title="已完成底稿"
-                            :value="penetrateData.workingPapers?.completedCount || 0" /></el-col>
-                    <el-col :span="6"><el-statistic title="整改问题数"
+                    <el-col :span="6"><el-statistic title="整改问题数(驳回)"
                             :value="penetrateData.rectifyLedger?.totalIssues || 0" /></el-col>
                     <el-col :span="6"><el-statistic title="整改完成"
                             :value="penetrateData.rectifyLedger?.rectifiedCount || 0" /></el-col>
@@ -464,9 +516,9 @@ onMounted(() => { fetchTableData(); fetchSummary() })
                 <el-form-item label="计划名称"><el-input v-model="changeForm.batchName" /></el-form-item>
                 <el-form-item label="计划类型"><el-select v-model="changeForm.planType" style="width:100%"><el-option v-for="(v,i) in allType" :key="i" :label="v" :value="i" /></el-select></el-form-item>
                 <el-form-item label="计划周期"><el-date-picker v-model="changeForm.startDate" type="date" placeholder="开始" style="width:45%" /> <span style="margin:0 8px">—</span> <el-date-picker v-model="changeForm.endDate" type="date" placeholder="结束" style="width:45%" /></el-form-item>
-                <el-form-item label="审计组长"><el-select v-model="changeForm.auditLeader" clearable filterable style="width:100%"><el-option v-for="a in auditorList" :key="a.userId" :label="a.userName" :value="a.userName" /></el-select></el-form-item>
                 <el-form-item label="被审计单位"><el-select v-model="changeForm.unitId" clearable filterable style="width:100%"><el-option v-for="u in unitList" :key="u.unitId" :label="u.unitName" :value="u.unitId" /></el-select></el-form-item>
-                <el-form-item label="经责干部"><el-select v-model="changeForm.leaderId" clearable filterable style="width:100%"><el-option v-for="l in leaderList" :key="l.leaderId" :label="l.leaderName + ' - ' + l.currentPosition" :value="l.leaderId" /></el-select></el-form-item>
+                <el-form-item label="经责干部"><el-select v-model="changeForm.leaderId" clearable filterable style="width:100%"><el-option v-for="l in (changeForm.unitId ? leaderList.filter(x => x.currentUnitName === unitList.find(u => u.unitId === changeForm.unitId)?.unitName && x.isActive === 1) : leaderList)" :key="l.leaderId" :label="l.leaderName + ' - ' + l.currentPosition" :value="l.leaderId" /></el-select></el-form-item>
+                <el-row :gutter="16"><el-col :span="12"><el-form-item label="项目金额(万)"><el-input-number v-model="changeForm.projectAmount" :min="0" :precision="2" style="width:100%" /></el-form-item></el-col><el-col :span="12"><el-form-item label="资金来源"><el-select v-model="changeForm.fundSource" clearable filterable allow-create style="width:100%"><el-option v-for="s in fundSources" :key="s" :label="s" :value="s" /></el-select></el-form-item></el-col></el-row>
                 <el-form-item label="备注"><el-input v-model="changeForm.remark" type="textarea" :rows="2" /></el-form-item>
             </el-form>
             <el-alert type="warning" :closable="false" show-icon description="变更提交后需在审批跟踪中确认才会生效。" style="margin-top:8px" />

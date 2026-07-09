@@ -10,15 +10,14 @@ const route = useRoute();
 const activedMenu = ref(route.path);
 
 // 从 localStorage 读取当前登录用户信息
+const userInfo = computed(() => {
+  try { const raw = localStorage.getItem('userInfo'); if (raw) return JSON.parse(raw) } catch {}
+  return {}
+})
+const isSuperAdmin = computed(() => userInfo.value.roleLevel == 0 || userInfo.value.role_level == 0)
 const userName = computed(() => {
-  try {
-    const raw = localStorage.getItem('userInfo')
-    if (raw) {
-      const u = JSON.parse(raw)
-      return (u.realName || u.username || '未登录') + '·' + (u.position || u.role || '')
-    }
-  } catch {}
-  return '审计处·陈处长'
+  const u = userInfo.value
+  return (u.realName || u.username || '未登录') + '·' + (u.position || u.role || '')
 })
 const openedMenu = ref(['/plan', '/object']);
 
@@ -73,7 +72,7 @@ const pageTitle = computed(() => {
     '/plan/form': '计划清单', '/plan/track': '审批跟踪',
     '/object/unit': '被审计单位库', '/object/lead': '领导干部库',
     '/statistic': '审计进度可视化',
-    '/settings/profile': '个人信息', '/settings/system': '系统设置'
+    '/settings/profile': '个人信息', '/settings/system': '系统设置', '/settings/users': '用户管理'
   }
   return titles[route.path] || '信息管理'
 })
@@ -83,7 +82,8 @@ const userMenuVisible = ref(false)
 onMounted(() => {
   fetchMessages()
   const timer = setInterval(fetchMessages, 60000)
-  onUnmounted(() => clearInterval(timer))
+  window.addEventListener('msg-refresh', fetchMessages)
+  onUnmounted(() => { clearInterval(timer); window.removeEventListener('msg-refresh', fetchMessages) })
 })
 </script>
 
@@ -171,6 +171,10 @@ onMounted(() => {
             <el-menu-item index="/statistic">
               <el-icon><DataAnalysis /></el-icon>
               <span>审计进度可视化</span>
+            </el-menu-item>
+            <el-menu-item v-if="isSuperAdmin" index="/settings/users">
+              <el-icon><UserFilled /></el-icon>
+              <span>用户管理</span>
             </el-menu-item>
           </el-menu>
         </el-scrollbar>

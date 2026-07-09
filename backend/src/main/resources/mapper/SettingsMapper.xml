@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.SettingsMapper">
+    <select id="findByUserId" resultType="map">SELECT setting_key, setting_value FROM sys_settings WHERE user_id=#{userId}</select>
+    <insert id="save">INSERT INTO sys_settings (user_id, setting_key, setting_value) VALUES (#{userId},#{key},#{value}) ON DUPLICATE KEY UPDATE setting_value=#{value}, update_time=NOW()</insert>
+</mapper>

@@ -7,6 +7,7 @@ import com.audit.mapper.ApprovalMapper;
 import com.audit.mapper.AttachmentMapper;
 import com.audit.mapper.AuditUnitMapper;
 import com.audit.mapper.AuditLeaderMapper;
+import com.audit.mapper.MessageMapper;
 import com.audit.mapper.PlanBatchMapper;
 import com.audit.mapper.RectifyMapper;
 import com.audit.mapper.UserMapper;
@@ -27,12 +28,13 @@ public class PlanBatchController {
     private final AuditUnitMapper unitMapper;
     private final AuditLeaderMapper leaderMapper;
     private final RectifyMapper rectifyMapper;
+    private final MessageMapper messageMapper;
 
     public PlanBatchController(PlanBatchService service, ApprovalMapper approvalMapper,
                                 PlanBatchMapper batchMapper, UserMapper userMapper,
                                 AttachmentMapper attachmentMapper,
                                 AuditUnitMapper unitMapper, AuditLeaderMapper leaderMapper,
-                                RectifyMapper rectifyMapper) {
+                                RectifyMapper rectifyMapper, MessageMapper messageMapper) {
         this.service = service;
         this.approvalMapper = approvalMapper;
         this.batchMapper = batchMapper;
@@ -41,6 +43,7 @@ public class PlanBatchController {
         this.unitMapper = unitMapper;
         this.leaderMapper = leaderMapper;
         this.rectifyMapper = rectifyMapper;
+        this.messageMapper = messageMapper;
     }
 
     // ============ 计划批次 CRUD ============
@@ -81,6 +84,69 @@ public class PlanBatchController {
     @DeleteMapping("/plan/batches/{batchId}")
     public Result<Void> delete(@PathVariable String batchId) {
         service.delete(batchId);
+        return Result.ok();
+    }
+
+    /** 导出后归档（仅进度100%的计划才会归档） */
+    @PostMapping("/plan/batches/{batchId}/archive")
+    public Result<Void> archive(@PathVariable String batchId) {
+        PlanBatch batch = batchMapper.findByBatchId(batchId);
+        if (batch != null && batch.getProgress() != null && batch.getProgress() >= 100) {
+            batchMapper.updateApprovalStatus(batchId, 2); // 已归档
+        }
+        return Result.ok();
+    }
+
+    /** 保存审计记录（实际金额），实际>预算自动驳回+预警 */
+    @PutMapping("/plan/batches/{batchId}/audit-record")
+    public Result<Void> saveAuditRecord(@PathVariable String batchId, @RequestBody Map<String, Object> body) {
+        PlanBatch batch = batchMapper.findByBatchId(batchId);
+        if (batch == null) return Result.fail(404, "计划不存在");
+
+        java.math.BigDecimal actualAmt = body.get("actualAmount") != null ?
+                new java.math.BigDecimal(body.get("actualAmount").toString()) : java.math.BigDecimal.ZERO;
+        java.math.BigDecimal budget = batch.getProjectAmount() != null ? batch.getProjectAmount() : java.math.BigDecimal.ZERO;
+
+        // 实际使用金额超过预算 → 自动驳回 + 预警
+        if (actualAmt.compareTo(java.math.BigDecimal.ZERO) > 0 && actualAmt.compareTo(budget) > 0) {
+            batch.setActualAmount(actualAmt);
+            batch.setApprovalStatus(4); // 已驳回
+            batch.setProgress(0);
+            batchMapper.updateAmounts(batch);
+            batchMapper.updateApprovalStatus(batchId, 4);
+            batchMapper.updateProgress(batchId, 0);
+            // 创建预警消息
+            messageMapper.insertAlert("MSG" + IdUtil.fastSimpleUUID().substring(0,6).toUpperCase(),
+                    "预算超支预警", "项目「" + batch.getBatchName() + "」实际使用" + actualAmt + "万超过预算" + budget + "万，已自动驳回",
+                    "ALERT", batchId);
+            return Result.fail(400, "实际使用金额(" + actualAmt + "万)超过预算(" + budget + "万)，已自动驳回并发出预警");
+        }
+
+        batch.setActualAmount(actualAmt);
+        batchMapper.updateAmounts(batch);
+        // 同步审计结论到领导
+        if (batch.getLeaderId() != null && batch.getAuditConclusion() != null) {
+            var leader = leaderMapper.findByLeaderId(batch.getLeaderId());
+            if (leader != null) {
+                leader.setLatestAuditConclusion(batch.getAuditConclusion());
+                leaderMapper.update(leader);
+            }
+        }
+        return Result.ok();
+    }
+
+    /** 批量导出后归档（仅进度100%的计划才会归档） */
+    @PostMapping("/plan/batches/archive-batch")
+    public Result<Void> archiveBatch(@RequestBody Map<String, List<String>> body) {
+        List<String> ids = body.get("batchIds");
+        if (ids != null) {
+            for (String id : ids) {
+                PlanBatch batch = batchMapper.findByBatchId(id);
+                if (batch != null && batch.getProgress() != null && batch.getProgress() >= 100) {
+                    batchMapper.updateApprovalStatus(id, 2);
+                }
+            }
+        }
         return Result.ok();
     }
 
@@ -136,7 +202,11 @@ public class PlanBatchController {
         return Result.ok(Map.of("list", approvalMapper.getHistory(batchId)));
     }
 
+    // 审批步骤→进度→状态映射
+    // 步骤1提交→10%, 步骤2组长→30%, 步骤3处长→60% (审批中)
+    // 步骤4校领导→85%, 步骤5归档→100% (已审批)
     private static final int[] STEP_PROGRESS = {0, 10, 30, 60, 85, 100};
+    private static final int[] STEP_STATUS  = {3, 1, 1, 1, 0, 0}; // 草稿,审批中×3,已审批×2
 
     private String getApproverName(String authHeader) {
         if (authHeader != null && authHeader.contains("jwt-token-")) {
@@ -156,6 +226,22 @@ public class PlanBatchController {
         String comment = body.get("comment");
         String approverName = getApproverName(auth);
 
+        // 预算检查：实际使用>项目金额 → 无论通过/驳回都自动打回
+        PlanBatch batch = batchMapper.findByBatchId(batchId);
+        if (batch != null && batch.getActualAmount() != null && batch.getProjectAmount() != null
+                && batch.getActualAmount().compareTo(batch.getProjectAmount()) > 0) {
+            batch.setApprovalStatus(4);
+            batch.setProgress(0);
+            batchMapper.updateApprovalStatus(batchId, 4);
+            batchMapper.updateProgress(batchId, 0);
+            // 检查是否已有预警，避免重复
+            messageMapper.insertAlert("MSG" + IdUtil.fastSimpleUUID().substring(0,6).toUpperCase(),
+                    "预算超支预警",
+                    "「" + batch.getBatchName() + "」实际使用" + batch.getActualAmount() + "万超过预算" + batch.getProjectAmount() + "万，审批已自动驳回",
+                    "ALERT", batchId);
+            return Result.fail(400, "实际使用金额超出预算，审批已自动驳回。请修正实际使用金额后重新提交。");
+        }
+
         List<Map<String, Object>> steps = approvalMapper.getSteps(batchId);
         for (Map<String, Object> step : steps) {
             if ("ACTIVE".equals(step.get("status"))) {
@@ -164,16 +250,16 @@ public class PlanBatchController {
                 String historyId = "APR" + IdUtil.fastSimpleUUID().substring(0, 6).toUpperCase();
                 if ("APPROVE".equals(action)) {
                     approvalMapper.updateStep(batchId, stepOrder, "COMPLETED", approverName, comment);
-                    int newProgress = STEP_PROGRESS[Math.min(stepOrder, STEP_PROGRESS.length - 1)];
-                    batchMapper.updateProgress(batchId, newProgress);
+                    int idx = Math.min(stepOrder, STEP_PROGRESS.length - 1);
+                    batchMapper.updateProgress(batchId, STEP_PROGRESS[idx]);
+                    batchMapper.updateApprovalStatus(batchId, STEP_STATUS[idx]);
                     int nextOrder = stepOrder + 1;
                     if (nextOrder <= steps.size()) {
                         approvalMapper.updateStep(batchId, nextOrder, "ACTIVE", null, null);
                     }
+                    // 每个阶段完成都更新最近审计日期，最后一步+审计次数
+                    updateUnitLeaderDate(batchId);
                     if (nextOrder > steps.size()) {
-                        batchMapper.updateApprovalStatus(batchId, 0);
-                        batchMapper.updateProgress(batchId, 100);
-                        // 审计完成 → 更新关联单位和干部的审计统计
                         updateAuditStats(batchId);
                     }
                     approvalMapper.insertHistory(historyId, batchId, approverName, "已通过");
@@ -182,8 +268,9 @@ public class PlanBatchController {
                     batchMapper.updateApprovalStatus(batchId, 4);
                     batchMapper.updateProgress(batchId, 0);
                     approvalMapper.insertHistory(historyId, batchId, approverName, "已驳回");
-                    // 驳回 → 为关联单位创建整改记录
                     createRejectionRectify(batchId, approverName, comment);
+                    // 驳回也算一次审计
+                    updateAuditCounts(batchId);
                 }
                 break;
             }
@@ -203,7 +290,7 @@ public class PlanBatchController {
         String changeId = "CHG" + IdUtil.fastSimpleUUID().substring(0, 6).toUpperCase();
         int changeType = body.get("changeType") != null ? ((Number) body.get("changeType")).intValue() : 0;
         String reason = (String) body.getOrDefault("reason", "");
-        String[] changeNames = {"修改计划信息", "调减项目", "修改周期", "其他变更"};
+        String[] changeNames = {"修改基本信息", "调整金额预算", "变更审计对象", "修改实施周期"};
         try {
             String snapshot = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(body);
             approvalMapper.insertChange(changeId, batchId, changeType,
@@ -241,12 +328,20 @@ public class PlanBatchController {
                         if (data.containsKey("unitId")) current.setUnitId((String) data.get("unitId"));
                         if (data.containsKey("leaderId")) current.setLeaderId((String) data.get("leaderId"));
                         if (data.containsKey("remark")) current.setRemark((String) data.get("remark"));
+                        if (data.containsKey("projectAmount") && data.get("projectAmount") != null)
+                            current.setProjectAmount(new java.math.BigDecimal(data.get("projectAmount").toString()));
+                        if (data.containsKey("fundSource")) current.setFundSource((String) data.get("fundSource"));
                     } catch (Exception ignored) {}
                 }
                 break;
             }
         }
+        // 变更后重算关联领导资金
         batchMapper.update(current);
+        if (current.getLeaderId() != null) {
+            service.updateLeaderFunds(current.getLeaderId());
+        }
+        updateAuditCounts(batchId);
         return Result.ok();
     }
 
@@ -268,20 +363,45 @@ public class PlanBatchController {
     @PostMapping("/plan/batches/{batchId}/approval/resubmit")
     public Result<Void> resubmit(@PathVariable String batchId) {
         List<Map<String, Object>> steps = approvalMapper.getSteps(batchId);
-        // 所有步骤重置：第一步 ACTIVE，其余 PENDING
         for (int i = 0; i < steps.size(); i++) {
             int order = ((Number) steps.get(i).get("stepOrder")).intValue();
             String status = (order == 1) ? "ACTIVE" : "PENDING";
             approvalMapper.updateStep(batchId, order, status, null, null);
         }
-        batchMapper.updateApprovalStatus(batchId, 1); // 审批中
+        batchMapper.updateApprovalStatus(batchId, 1);
         batchMapper.updateProgress(batchId, 10);
+        // 将驳回产生的整改项标为已整改
+        rectifyMapper.markRejectionResolved(batchId);
         return Result.ok();
     }
 
     /**
      * 审计完成时更新关联单位/干部的统计信息 + 清除驳回产生的整改项
      */
+    /** 驳回/审批完成时 +1 审计次数 */
+    private void updateAuditCounts(String batchId) {
+        PlanBatch batch = batchMapper.findByBatchId(batchId);
+        if (batch == null) return;
+        if (batch.getUnitId() != null) {
+            unitMapper.incrementAuditCount(batch.getUnitId());
+        }
+        if (batch.getLeaderId() != null) {
+            leaderMapper.incrementAuditCount(batch.getLeaderId());
+        }
+    }
+
+    /** 每个审批阶段完成时更新单位/领导的最近审计日期 */
+    private void updateUnitLeaderDate(String batchId) {
+        PlanBatch batch = batchMapper.findByBatchId(batchId);
+        if (batch == null) return;
+        if (batch.getUnitId() != null) {
+            unitMapper.updateLatestAuditDate(batch.getUnitId());
+        }
+        if (batch.getLeaderId() != null) {
+            leaderMapper.updateLatestAuditDate(batch.getLeaderId());
+        }
+    }
+
     private void updateAuditStats(String batchId) {
         PlanBatch batch = batchMapper.findByBatchId(batchId);
         if (batch == null) return;
@@ -291,23 +411,8 @@ public class PlanBatchController {
 
         // 更新被审计单位
         if (batch.getUnitId() != null) {
-            var unit = unitMapper.findByUnitId(batch.getUnitId());
-            if (unit != null) {
-                unit.setTotalAuditCount((unit.getTotalAuditCount() != null ? unit.getTotalAuditCount() : 0) + 1);
-                unit.setLatestAuditDate(java.time.LocalDate.now());
-                int pending = rectifyMapper.countPendingByUnitId(batch.getUnitId());
-                unit.setPendingRectifyCount(pending);
-                unitMapper.update(unit);
-                // 级联：更新该单位的所有在职领导干部
-                var leaders = leaderMapper.findList(null, 1);
-                for (var ldr : leaders) {
-                    if (unit.getUnitName().equals(ldr.getCurrentUnitName())) {
-                        ldr.setPendingRectifyCount(pending);
-                        ldr.setLatestAuditDate(java.time.LocalDate.now());
-                        leaderMapper.update(ldr);
-                    }
-                }
-            }
+            int pending = rectifyMapper.countPendingByUnitId(batch.getUnitId());
+            unitMapper.incrementAuditStats(batch.getUnitId(), pending);
         }
 
         // 更新直接关联的领导干部
@@ -316,6 +421,7 @@ public class PlanBatchController {
             if (leader != null) {
                 leader.setAuditCount((leader.getAuditCount() != null ? leader.getAuditCount() : 0) + 1);
                 leader.setLatestAuditDate(java.time.LocalDate.now());
+                leader.setFundScope(null); // 防止 fundScope 被 update 覆盖
                 leaderMapper.update(leader);
             }
         }
@@ -357,8 +463,7 @@ public class PlanBatchController {
         result.put("progress", progress);
 
         Map<String, Object> papers = new LinkedHashMap<>();
-        papers.put("totalCount", Math.max(prog / 4, 0));
-        papers.put("completedCount", Math.max(prog / 5, 0));
+        papers.put("totalCount", approvalMapper.getHistory(projectId).size());
         result.put("workingPapers", papers);
 
         Map<String, Object> reports = new LinkedHashMap<>();
@@ -367,13 +472,10 @@ public class PlanBatchController {
         result.put("reports", reports);
 
         List<Map<String, Object>> rectList = rectifyMapper.findByBatchId(projectId);
-        int totalIssues = rectList.size();
-        int rectified = 0, rectifying = 0, pending = 0;
-        for (Map<String, Object> r : rectList) {
-            Object st = r.get("rectify_status");
-            int status = st instanceof Number ? ((Number) st).intValue() : 0;
-            if (status == 2) rectified++; else if (status == 1) rectifying++; else pending++;
-        }
+        int totalIssues = (int) rectList.stream().filter(r -> "审批驳回".equals(r.get("issue_category"))).count();
+        int rectified = (int) rectList.stream().filter(r -> "审批驳回".equals(r.get("issue_category")) && r.get("rectify_status") instanceof Number && ((Number)r.get("rectify_status")).intValue() == 2).count();
+        int rectifying = (int) rectList.stream().filter(r -> "审批驳回".equals(r.get("issue_category")) && r.get("rectify_status") instanceof Number && ((Number)r.get("rectify_status")).intValue() == 1).count();
+        int pending = totalIssues - rectified - rectifying;
         Map<String, Object> rectify = new LinkedHashMap<>();
         rectify.put("totalIssues", totalIssues);
         rectify.put("rectifiedCount", rectified);

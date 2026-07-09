@@ -2,6 +2,8 @@ package com.audit.controller;
 
 import com.audit.common.Result;
 import com.audit.entity.PlanBatch;
+import com.audit.mapper.ApprovalMapper;
+import com.audit.mapper.AuditLeaderMapper;
 import com.audit.mapper.PlanBatchMapper;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,9 +16,11 @@ import java.util.*;
 public class StatisticsController {
 
     private final PlanBatchMapper planBatchMapper;
+    private final ApprovalMapper approvalMapper;
 
-    public StatisticsController(PlanBatchMapper planBatchMapper) {
+    public StatisticsController(PlanBatchMapper planBatchMapper, ApprovalMapper approvalMapper) {
         this.planBatchMapper = planBatchMapper;
+        this.approvalMapper = approvalMapper;
     }
 
     /**
@@ -136,33 +140,23 @@ public class StatisticsController {
      */
     @GetMapping("/workload")
     public Result<Map<String, Object>> getWorkload(@RequestParam(required = false) Integer year) {
-        if (year == null) year = LocalDate.now().getYear();
-        List<PlanBatch> all = planBatchMapper.findList(null, null, year, null);
-
-        // 按组长聚合
-        Map<String, Map<String, Object>> leaderMap = new LinkedHashMap<>();
-        for (PlanBatch b : all) {
-            String leader = b.getAuditLeader() != null && !b.getAuditLeader().isEmpty() ? b.getAuditLeader() : "未分配";
-            leaderMap.putIfAbsent(leader, new LinkedHashMap<>());
-            Map<String, Object> m = leaderMap.get(leader);
-            m.putIfAbsent("userName", leader);
-            m.putIfAbsent("role", "审计组长");
-            m.putIfAbsent("currentProjects", 0);
-            m.put("currentProjects", (int) m.get("currentProjects") + 1);
-        }
-
+        // 统计每个审计员的审批操作次数（从 approval_history 表）
         List<Map<String, Object>> auditLeaders = new ArrayList<>();
         int idx = 1;
-        for (Map.Entry<String, Map<String, Object>> e : leaderMap.entrySet()) {
-            Map<String, Object> item = e.getValue();
+        for (var h : approvalMapper.getAllHistory()) {
+            String user = (String) h.getOrDefault("submit_by", "未知");
+            Object cntObj = h.get("cnt");
+            int cnt = cntObj instanceof Number ? ((Number) cntObj).intValue() : 1;
+            Map<String, Object> item = new LinkedHashMap<>();
             item.put("userId", "U" + String.format("%03d", idx++));
-            item.put("maxCapacity", 6);
-            int cp = (int) item.get("currentProjects");
-            item.put("workloadPercent", Math.round(cp * 100.0 / 6));
-            item.put("overload", cp > 6);
+            item.put("userName", user);
+            item.put("role", "审计员");
+            item.put("currentProjects", cnt);
+            item.put("maxCapacity", 20);
+            item.put("workloadPercent", Math.round(cnt * 100.0 / 20));
+            item.put("overload", cnt > 20);
             auditLeaders.add(item);
         }
-
         return Result.ok(Map.of("auditLeaders", auditLeaders));
     }
 
@@ -188,26 +182,33 @@ public class StatisticsController {
         List<Map<String, Object>> list = new ArrayList<>();
         for (PlanBatch b : all) {
             int prog = b.getProgress() != null ? b.getProgress() : 0;
-            if (prog >= 100) continue; // 已完成的跳过
+            if (prog >= 100 || b.getApprovalStatus() != null && b.getApprovalStatus() == 4) continue;
+            if (b.getStartDate() == null || b.getEndDate() == null) continue;
 
-            if (b.getEndDate() != null && b.getEndDate().isBefore(today)) {
-                long days = ChronoUnit.DAYS.between(b.getEndDate(), today);
-                int at = prog == 0 ? 0 : 1; // 0=超期未启动, 1=实施滞后
+            long totalDays = ChronoUnit.DAYS.between(b.getStartDate(), b.getEndDate());
+            if (totalDays <= 0) continue;
+            long elapsedDays = ChronoUnit.DAYS.between(b.getStartDate(), today);
+            if (elapsedDays < 0) elapsedDays = 0;
+            int elapsedPct = (int) (elapsedDays * 100 / totalDays);
+            int gap = elapsedPct - prog;
+
+            if (gap > 20) { // 进度落后时间20%以上预警
+                int at = prog == 0 ? 0 : 1;
                 if (alertType != null && at != alertType) continue;
-
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("projectId", b.getBatchId());
                 item.put("projectName", b.getBatchName());
                 item.put("batchName", b.getBatchName());
                 item.put("alertType", at);
                 item.put("alertTypeName", at == 0 ? "超期未启动" : "实施滞后");
-                item.put("daysOverdue", (int) days);
+                item.put("daysOverdue", gap);
+                item.put("elapsedPct", elapsedPct);
+                item.put("progress", prog);
                 item.put("auditLeader", b.getAuditLeader() != null ? b.getAuditLeader() : "未分配");
                 item.put("notified", false);
                 list.add(item);
             }
         }
-
         return Result.ok(Map.of("list", list));
     }
 

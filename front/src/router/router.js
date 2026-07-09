@@ -55,6 +55,12 @@ const routes = [
                 component: () => import('@/views/settings/System.vue'),
                 meta: { title: '系统设置', requiresAuth: true }
             },
+            {
+                path: '/settings/users',
+                name: 'users',
+                component: () => import('@/views/settings/UserManage.vue'),
+                meta: { title: '用户管理', requiresAuth: true, superAdmin: true }
+            },
         ]
     }
 ];

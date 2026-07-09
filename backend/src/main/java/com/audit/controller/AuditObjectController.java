@@ -50,7 +50,30 @@ public class AuditObjectController {
 
     @GetMapping("/objects/units/{unitId}")
     public Result<AuditUnit> getUnit(@PathVariable String unitId) {
-        return Result.ok(unitService.getByUnitId(unitId));
+        AuditUnit unit = unitService.getByUnitId(unitId);
+        if (unit != null) {
+            // 动态查询领导电话
+            if (unit.getLeaderInCharge() != null) {
+                var leaders = leaderService.getList(null, 1, 1, 100);
+                for (var l : leaders.getList()) {
+                    if (unit.getLeaderInCharge().equals(l.getLeaderName())) {
+                        unit.setLeaderInChargePhone(l.getPhone());
+                        break;
+                    }
+                }
+            }
+            // 动态查询财务联系人电话
+            if (unit.getFinanceContact() != null) {
+                var leaders = leaderService.getList(null, 1, 1, 100);
+                for (var l : leaders.getList()) {
+                    if (unit.getFinanceContact().equals(l.getLeaderName())) {
+                        unit.setFinanceContactPhone(l.getPhone());
+                        break;
+                    }
+                }
+            }
+        }
+        return Result.ok(unit);
     }
 
     @PostMapping("/objects/units")
@@ -72,7 +95,19 @@ public class AuditObjectController {
 
     @GetMapping("/objects/units/{unitId}/audit-records")
     public Result<Map<String, Object>> getUnitAuditRecords(@PathVariable String unitId) {
-        return Result.ok(Map.of("list", List.of()));
+        java.util.List<Map<String, Object>> records = new java.util.ArrayList<>();
+        for (var b : batchMapper.findList(null, null, null, null)) {
+            if (unitId.equals(b.getUnitId())) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("projectName", b.getBatchName());
+                r.put("date", b.getEndDate() != null ? b.getEndDate().toString() : "");
+                r.put("type", new String[]{"经济责任审计","财务收支审计","专项审计","工程审计"}[b.getPlanType() != null && b.getPlanType() < 4 ? b.getPlanType() : 0]);
+                r.put("issueCount", rectifyMapper.countPendingByUnitId(unitId));
+                r.put("status", b.getProgress() != null && b.getProgress() >= 100 ? "已完成" : "进行中");
+                records.add(r);
+            }
+        }
+        return Result.ok(Map.of("list", records));
     }
 
     @GetMapping("/objects/units/{unitId}/rectify-ledger")

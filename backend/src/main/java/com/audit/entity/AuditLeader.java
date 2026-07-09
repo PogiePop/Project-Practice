@@ -19,8 +19,12 @@ public class AuditLeader {
     private Integer auditCount;
     private LocalDate latestAuditDate;
     private String latestAuditConclusion;
+    private String phone;
     private Integer pendingRectifyCount;
     private LocalDateTime createTime;
+
+    public String getPhone() { return phone; }
+    public void setPhone(String phone) { this.phone = phone; }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.AuditLeaderMapper">
+    <select id="findList" resultType="com.audit.entity.AuditLeader">
+        SELECT * FROM audit_object_leader WHERE 1=1
+        <if test="keyword != null"> AND (leader_name LIKE CONCAT('%',#{keyword},'%') OR staff_id LIKE CONCAT('%',#{keyword},'%'))</if>
+        <if test="isActive != null"> AND is_active = #{isActive}</if>
+        ORDER BY create_time DESC
+    </select>
+    <select id="findByLeaderId" resultType="com.audit.entity.AuditLeader">SELECT * FROM audit_object_leader WHERE leader_id=#{leaderId}</select>
+    <insert id="insert">
+        INSERT INTO audit_object_leader (leader_id, leader_code, leader_name, staff_id, current_unit_name, current_position, phone, is_active, tenure_start_date, tenure_years, fund_scope, audit_count, latest_audit_date, latest_audit_conclusion)
+        VALUES (#{leaderId}, #{leaderCode}, #{leaderName}, #{staffId}, #{currentUnitName}, #{currentPosition}, #{phone}, #{isActive}, #{tenureStartDate}, #{tenureYears}, #{fundScope}, #{auditCount}, #{latestAuditDate}, #{latestAuditConclusion})
+    </insert>
+    <update id="update">
+        UPDATE audit_object_leader SET leader_name=#{leaderName}, staff_id=#{staffId}, current_unit_name=#{currentUnitName}, current_position=#{currentPosition}, phone=#{phone}, is_active=#{isActive}, tenure_start_date=#{tenureStartDate}, tenure_years=#{tenureYears}, latest_audit_conclusion=#{latestAuditConclusion} WHERE leader_id=#{leaderId}
+    </update>
+    <delete id="deleteByLeaderId">DELETE FROM audit_object_leader WHERE leader_id=#{leaderId}</delete>
+    <select id="findRecommendList" resultType="com.audit.entity.AuditLeader">SELECT * FROM audit_object_leader WHERE is_active=1 AND tenure_years &gt;= 3 ORDER BY tenure_years DESC</select>
+    <update id="updateFundScope">UPDATE audit_object_leader SET fund_scope=#{fundScope} WHERE leader_id=#{leaderId}</update>
+    <update id="updateLatestAuditDate">UPDATE audit_object_leader SET latest_audit_date=NOW() WHERE leader_id=#{leaderId}</update>
+    <update id="incrementAuditCount">UPDATE audit_object_leader SET audit_count=IFNULL(audit_count,0)+1, latest_audit_date=NOW() WHERE leader_id=#{leaderId}</update>
+    <update id="updateAuditCount">UPDATE audit_object_leader SET audit_count=#{count} WHERE leader_id=#{leaderId}</update>
+</mapper>

@@ -14,6 +14,7 @@ public class AuditUnit {
     private Integer establishmentCount;
     private BigDecimal fundScale;
     private String leaderInCharge;
+    private String leaderInChargePhone;
     private String financeContact;
     private String financeContactPhone;
     private String address;
@@ -45,6 +46,8 @@ public class AuditUnit {
     public void setFundScale(BigDecimal fundScale) { this.fundScale = fundScale; }
     public String getLeaderInCharge() { return leaderInCharge; }
     public void setLeaderInCharge(String leaderInCharge) { this.leaderInCharge = leaderInCharge; }
+    public String getLeaderInChargePhone() { return leaderInChargePhone; }
+    public void setLeaderInChargePhone(String leaderInChargePhone) { this.leaderInChargePhone = leaderInChargePhone; }
     public String getFinanceContact() { return financeContact; }
     public void setFinanceContact(String financeContact) { this.financeContact = financeContact; }
     public String getFinanceContactPhone() { return financeContactPhone; }

@@ -37,4 +37,13 @@ public class MessageController {
     public Result<Map<String, Object>> unreadCount() {
         return Result.ok(Map.of("count", mapper.countUnread()));
     }
+
+    @PostMapping("/messages/import-notify")
+    public Result<Void> importNotify(@RequestBody Map<String, String> body) {
+        String title = body.getOrDefault("title", "导入完成");
+        String content = body.getOrDefault("content", "");
+        String msgId = "MSG" + java.util.UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        mapper.insertAlert(msgId, title, content, "SYSTEM", null);
+        return Result.ok();
+    }
 }

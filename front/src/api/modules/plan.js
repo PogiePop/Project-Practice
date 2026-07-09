@@ -241,3 +241,16 @@ export function approveChange(batchId, changeId) {
 export function penetrateProject(projectId) {
   return request.get(`/plan/projects/${projectId}/penetrate`)
 }
+
+/** 导出后归档（仅100%进度的计划） */
+export function archiveBatch(batchId) {
+  return request.post(`/plan/batches/${batchId}/archive`)
+}
+export function archiveBatchList(batchIds) {
+  return request.post('/plan/batches/archive-batch', { batchIds })
+}
+
+/** 保存审计记录（金额、发现、结论） */
+export function saveAuditRecord(batchId, data) {
+  return request.put(`/plan/batches/${batchId}/audit-record`, data)
+}

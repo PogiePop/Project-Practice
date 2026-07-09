@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.PlanBatchMapper">
+
+    <select id="findList" resultType="com.audit.entity.PlanBatch">
+        SELECT b.*, u.unit_name as unitName FROM audit_plan_batch b
+        LEFT JOIN audit_object_unit u ON b.unit_id = u.unit_id WHERE 1=1
+        <if test="keyword != null"> AND (b.batch_id LIKE CONCAT('%',#{keyword},'%') OR b.batch_name LIKE CONCAT('%',#{keyword},'%'))</if>
+        <if test="planType != null"> AND b.plan_type = #{planType}</if>
+        <if test="year != null"> AND b.year = #{year}</if>
+        <if test="approvalStatus != null"> AND b.approval_status = #{approvalStatus}</if>
+        ORDER BY b.create_time DESC
+    </select>
+
+    <select id="findByBatchId" resultType="com.audit.entity.PlanBatch">
+        SELECT * FROM audit_plan_batch WHERE batch_id = #{batchId}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO audit_plan_batch (batch_id, batch_name, plan_type, year, project_count, start_date, end_date, approval_status, progress, unit_id, leader_id, project_amount, fund_source, remark)
+        VALUES (#{batchId}, #{batchName}, #{planType}, #{year}, #{projectCount}, #{startDate}, #{endDate}, #{approvalStatus}, #{progress}, #{unitId}, #{leaderId}, #{projectAmount}, #{fundSource}, #{remark})
+    </insert>
+
+    <update id="update">
+        UPDATE audit_plan_batch SET batch_name=#{batchName}, plan_type=#{planType}, year=#{year}, project_count=#{projectCount},
+        start_date=#{startDate}, end_date=#{endDate}, unit_id=#{unitId}, leader_id=#{leaderId},
+        project_amount=#{projectAmount}, fund_source=#{fundSource}, update_time=NOW() WHERE batch_id=#{batchId}
+    </update>
+
+    <delete id="deleteByBatchId">
+        DELETE FROM audit_plan_batch WHERE batch_id = #{batchId}
+    </delete>
+
+    <update id="updateApprovalStatus">
+        UPDATE audit_plan_batch SET approval_status = #{status}, update_time = NOW() WHERE batch_id = #{batchId}
+    </update>
+
+    <update id="updateProgress">
+        UPDATE audit_plan_batch SET progress = #{progress}, update_time = NOW() WHERE batch_id = #{batchId}
+    </update>
+
+    <update id="updateProjectCount">
+        UPDATE audit_plan_batch SET project_count = #{count}, update_time = NOW() WHERE batch_id = #{batchId}
+    </update>
+
+    <update id="updateAmounts">
+        UPDATE audit_plan_batch SET project_amount=#{projectAmount}, actual_amount=#{actualAmount},
+        findings=#{findings}, audit_conclusion=#{auditConclusion}, update_time=NOW() WHERE batch_id=#{batchId}
+    </update>
+
+    <select id="getSummary" resultType="map">
+        SELECT COUNT(*) as totalPlanCount,
+        SUM(CASE WHEN approval_status = 0 OR approval_status = 2 THEN 1 ELSE 0 END) as approvedCount,
+        SUM(CASE WHEN approval_status = 1 THEN 1 ELSE 0 END) as approvingCount,
+        SUM(CASE WHEN approval_status = 4 OR (end_date &lt; CURDATE() AND progress &lt; 100 AND approval_status != 2) THEN 1 ELSE 0 END) as alertCount
+        FROM audit_plan_batch
+    </select>
+
+    <select id="findProjectsByLeader" resultType="map">
+        SELECT b.batch_id as projectId, b.batch_name as projectName,
+        CONCAT(DATE_FORMAT(b.start_date,'%Y-%m'),' ~ ',DATE_FORMAT(b.end_date,'%Y-%m')) as period,
+        CASE b.approval_status WHEN 0 THEN '已审批' WHEN 1 THEN '审批中' WHEN 2 THEN '已归档' WHEN 3 THEN '草稿' WHEN 4 THEN '已驳回' ELSE '未知' END as status,
+        IFNULL(b.audit_conclusion, '') as conclusion,
+        IFNULL(b.project_amount, 0) as projectAmount, IFNULL(b.actual_amount, 0) as actualAmount,
+        (SELECT COUNT(*) FROM audit_rectify_ledger r WHERE r.batch_id = b.batch_id) as issueCount,
+        (SELECT COUNT(*) FROM audit_rectify_ledger r WHERE r.batch_id = b.batch_id AND r.rectify_status = 2) as rectifiedCount
+        FROM audit_plan_batch b WHERE (b.leader_id = #{leaderId}
+        <if test="unitName != null"> OR b.unit_id IN (SELECT unit_id FROM audit_object_unit WHERE unit_name = #{unitName})</if>)
+        ORDER BY b.create_time DESC
+    </select>
+</mapper>

@@ -30,15 +30,12 @@ public class AuthController {
 
     @GetMapping("/userinfo")
     public Result<Map<String, Object>> userinfo(@RequestHeader(value = "Authorization", defaultValue = "") String auth) {
-        // 从 token 中提取用户名: "Bearer jwt-token-xxx" → "xxx"
-        String username = "admin"; // 默认
+        String username = "admin";
         if (auth.contains("jwt-token-")) {
             username = auth.replace("Bearer jwt-token-", "").trim();
         }
         Map<String, Object> user = userMapper.findByUsername(username);
-        if (user != null) {
-            return Result.ok(user);
-        }
+        if (user != null) return Result.ok(user);
         return Result.ok(userMapper.findByUsername("admin"));
     }
 

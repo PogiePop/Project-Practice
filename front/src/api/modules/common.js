@@ -96,3 +96,23 @@ export function saveUISettings(data) {
 export function saveAllSettings(data) {
   return request.post('/settings', data)
 }
+
+// ==================== 用户管理（超级管理员） ====================
+
+export function getUserList(params) { return request.get('/admin/users', { params }) }
+export function createUser(data) { return request.post('/admin/users', data) }
+export function updateUser(username, data) { return request.put(`/admin/users/${username}`, data) }
+export function deleteUser(username) { return request.delete(`/admin/users/${username}`) }
+/** 导入消息通知 */
+export function sendImportMsg(module, added, updated) {
+  const parts = []
+  if (added) parts.push(`新增${added}条`)
+  if (updated) parts.push(`更新${updated}条`)
+  return request.post('/messages/import-notify', {
+    title: `${module}导入完成`,
+    content: `批量导入完成：${parts.join('，')}`,
+    messageType: 'SYSTEM'
+  }).catch(() => {})
+}
+
+export function resetUserPassword(username, data) { return request.put(`/admin/users/${username}/password`, data) }

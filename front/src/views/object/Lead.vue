@@ -2,7 +2,11 @@
 import { reactive, ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { readExcel, exportExcel, downloadImportTemplate } from '@/utils/excel'
-import { objectApi } from '@/api'
+import { objectApi, commonApi } from '@/api'
+
+const positionOptions = ['院长', '副院长', '处长', '副处长', '主任', '副主任', '总经理', '副总经理', '党委书记', '党委副书记', '系主任', '科长']
+const unitSelectList = ref([])
+const loadUnitSelectList = async () => { try { const d = await objectApi.getUnits({ pageSize: 200 }); unitSelectList.value = d?.list || [] } catch {} }
 
 const searchForm = reactive({ keyword: '', isActive: '' })
 const tableData = ref([]); const loading = ref(false)
@@ -14,12 +18,12 @@ const fetchLeaderTable = async () => {
 
 // 新建/编辑
 const dialogVisible = ref(false); const dialogTitle = ref('新建领导干部'); const isEdit = ref(false)
-const leaderForm = reactive({ leaderName: '', staffId: '', unitName: '', position: '', isActive: 1, tenureStartDate: '', fundScope: null, _editId: '' })
+const leaderForm = reactive({ leaderName: '', staffId: '', unitName: '', position: '', isActive: 1, tenureStartDate: '', fundScope: null, phone: '', latestAuditConclusion: '', _editId: '' })
 const formRef = ref(null)
 const rules = { leaderName: [{ required: true, message: '请输入姓名', trigger: 'blur' }], staffId: [{ required: true, message: '请输入工号', trigger: 'blur' }], position: [{ required: true, message: '请输入职务', trigger: 'blur' }] }
-const openAddDialog = () => { dialogTitle.value = '新建领导干部'; isEdit.value = false; Object.keys(leaderForm).forEach(k => leaderForm[k] = k === 'isActive' ? 1 : (typeof leaderForm[k] === 'number' ? null : '')); dialogVisible.value = true }
-const openEditDialog = (row) => { dialogTitle.value = '编辑领导干部'; isEdit.value = true; Object.assign(leaderForm, { leaderName: row.leaderName, staffId: row.staffId, unitName: row.currentUnitName, position: row.currentPosition, isActive: row.isActive, tenureStartDate: row.tenureStartDate, fundScope: row.fundScope }); leaderForm._editId = row.leaderId; dialogVisible.value = true }
-const submitLeader = async () => { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; try { if (isEdit.value) { await objectApi.updateLeader(leaderForm._editId, leaderForm) } else { await objectApi.createLeader(leaderForm) }; ElMessage.success(isEdit.value ? '修改成功' : '新建成功'); dialogVisible.value = false; fetchLeaderTable() } catch {} }
+const openAddDialog = () => { dialogTitle.value = '新建领导干部'; isEdit.value = false; Object.keys(leaderForm).forEach(k => leaderForm[k] = k === 'isActive' ? 1 : (typeof leaderForm[k] === 'number' ? null : '')); loadUnitSelectList(); dialogVisible.value = true }
+const openEditDialog = async (row) => { dialogTitle.value = '编辑领导干部'; isEdit.value = true; await loadUnitSelectList(); Object.assign(leaderForm, { leaderName: row.leaderName, staffId: row.staffId, unitName: row.currentUnitName, position: row.currentPosition, isActive: row.isActive, tenureStartDate: row.tenureStartDate, fundScope: row.fundScope, phone: row.phone || '', latestAuditConclusion: row.latestAuditConclusion || '' }); leaderForm._editId = row.leaderId; dialogVisible.value = true }
+const submitLeader = async () => { const valid = await formRef.value?.validate().catch(() => false); if (!valid) return; try { const payload = { leaderName: leaderForm.leaderName, staffId: leaderForm.staffId, currentUnitName: leaderForm.unitName, currentPosition: leaderForm.position, isActive: leaderForm.isActive, tenureStartDate: leaderForm.tenureStartDate, phone: leaderForm.phone, latestAuditConclusion: leaderForm.latestAuditConclusion }; if (isEdit.value) { await objectApi.updateLeader(leaderForm._editId, payload) } else { await objectApi.createLeader(payload) }; ElMessage.success(isEdit.value ? '修改成功' : '新建成功'); dialogVisible.value = false; fetchLeaderTable() } catch {} }
 
 // 详情
 const detailDrawerVisible = ref(false); const detailLeader = ref(null)
@@ -140,15 +144,16 @@ const importToPlan = async (row) => { ElMessage.success(`已将 ${row.leaderName
 const deleteLeader = async (row) => { try { await objectApi.deleteLeader(row.leaderId); ElMessage.success('已删除'); fetchLeaderTable() } catch {} }
 
 // 导出
-const leaderExportColumns = [{ prop: 'leaderCode', label: '干部编码' },{ prop: 'leaderName', label: '姓名' },{ prop: 'staffId', label: '工号' },{ prop: 'currentUnitName', label: '所属单位' },{ prop: 'currentPosition', label: '现任职务' },{ prop: 'tenureStartDate', label: '任职起始' },{ prop: 'tenureYears', label: '任职年限' },{ prop: 'fundScope', label: '分管资金(万)' },{ prop: 'auditCount', label: '审计次数' },{ prop: 'latestAuditDate', label: '最近审计' },{ prop: 'latestAuditConclusion', label: '审计结论' },{ prop: 'pendingRectifyCount', label: '未整改' }]
+const leaderExportColumns = [{ prop: 'leaderId', label: '干部编码' },{ prop: 'leaderCode', label: '干部代码' },{ prop: 'leaderName', label: '姓名' },{ prop: 'staffId', label: '工号' },{ prop: 'currentUnitName', label: '所属单位' },{ prop: 'currentPosition', label: '现任职务' },{ prop: 'phone', label: '电话' },{ prop: 'tenureStartDate', label: '任职起始' },{ prop: 'tenureYears', label: '任职年限' },{ prop: 'fundScope', label: '分管资金(万)' },{ prop: 'auditCount', label: '审计次数' },{ prop: 'latestAuditDate', label: '最近审计' },{ prop: 'latestAuditConclusion', label: '审计结论' },{ prop: 'pendingRectifyCount', label: '未整改' }]
 const handleExport = () => { const d = tableData.value.map(r => ({ ...r, isActive: r.isActive ? '在职' : '离任' })); exportExcel(d, '经责领导干部库', leaderExportColumns) }
 
-// 导入
 const importVisible = ref(false); const rawImportFile = ref(null); const importPreviewData = ref([]); const importPreviewHeader = ref([]); const importFileName = ref('')
-const leaderImportTemplateFields = [{ label: '姓名', example: '张XX', required: true },{ label: '工号', example: 'T2020001', required: true },{ label: '所属单位', example: 'XX学院', required: true },{ label: '职务', example: '院长', required: true },{ label: '是否在职', example: '1-在职/0-离任', required: true },{ label: '任职起始日期', example: '2022-03-01', required: false },{ label: '任职年限', example: '4.3', required: false },{ label: '分管资金(万)', example: '5000', required: false },{ label: '审计结论', example: '履职情况良好', required: false }]
+const leaderImportTemplateFields = [{ label: '干部编码', example: 'LDR001', required: false },{ label: '姓名', example: '张XX', required: true },{ label: '工号', example: 'T2020001', required: true },{ label: '所属单位', example: 'XX学院', required: true },{ label: '职务', example: '院长', required: true },{ label: '电话', example: '13800000001', required: false },{ label: '是否在职', example: '1-在职/0-离任', required: true },{ label: '任职起始日期', example: '2022-03-01', required: false },{ label: '审计次数', example: '2', required: false },{ label: '最近审计日期', example: '2024-03-10', required: false },{ label: '审计结论', example: '履职情况良好', required: false }]
 const downloadLeaderTemplate = () => downloadImportTemplate('领导干部导入模板', leaderImportTemplateFields)
 const handleImportFile = async (file) => { importFileName.value = file.name; rawImportFile.value = file.raw; try { const r = await readExcel(file.raw); importPreviewHeader.value = r.header; importPreviewData.value = r.data; ElMessage.success(`成功读取 ${r.data.length} 条`) } catch (e) { ElMessage.error(e.message || '读取失败'); importPreviewData.value = [] } }
-const confirmImport = async () => { if (!importPreviewData.value.length) { ElMessage.warning('无数据'); return }; try { for (const row of importPreviewData.value) { await objectApi.createLeader({ leaderName: row['姓名'] || '未命名', staffId: row['工号'] || '', currentUnitName: row['所属单位'] || row['单位'] || '', currentPosition: row['职务'] || row['现任职务'] || '', isActive: row['是否在职'] === '0' || row['是否在职'] === '离任' ? 0 : 1, tenureStartDate: row['任职起始日期'] || undefined, fundScope: parseFloat(row['分管资金(万)']) || 0 }) }; ElMessage.success(`成功导入 ${importPreviewData.value.length} 条`); importVisible.value = false; fetchLeaderTable() } catch {} }
+const confirmImport = async () => { if (!importPreviewData.value.length) { ElMessage.warning('无数据'); return }; try { const existingIds = new Set(tableData.value.map(r => r.leaderId)); let added = 0, updated = 0; for (const row of importPreviewData.value) { const payload = { leaderName: row['姓名'] || '未命名', staffId: row['工号'] || '', currentUnitName: row['所属单位'] || row['单位'] || '', currentPosition: row['职务'] || row['现任职务'] || '', phone: row['电话'] || '', isActive: row['是否在职'] === '0' || row['是否在职'] === '离任' ? 0 : 1, tenureStartDate: row['任职起始日期'] || undefined, auditCount: parseInt(row['审计次数']) || undefined, latestAuditDate: row['最近审计日期'] || undefined, latestAuditConclusion: row['审计结论'] || undefined }; const lid = row['干部编码'] || ''; if (lid && existingIds.has(lid)) { await objectApi.updateLeader(lid, payload); updated++ } else { await objectApi.createLeader(payload); added++ } }; if (added || updated) commonApi.sendImportMsg('领导干部', added, updated).then(() => window.dispatchEvent(new Event('msg-refresh')))
+            importVisible.value = false; fetchLeaderTable()
+            ElMessage.success(`导入完成：新增 ${added} 条，更新 ${updated} 条`) } catch {} }
 const handleRemoveImportFile = () => { importFileName.value = ''; importPreviewData.value = []; importPreviewHeader.value = []; rawImportFile.value = null }
 
 onMounted(() => fetchLeaderTable())
@@ -180,6 +185,7 @@ onMounted(() => fetchLeaderTable())
                 <el-table-column prop="currentUnitName" label="所属单位" width="150" show-overflow-tooltip />
                 <el-table-column prop="currentPosition" label="现任职务" width="110" />
                 <el-table-column prop="isActive" label="状态" width="75"><template #default="{ row }"><el-tag size="small" :type="row.isActive ? 'success' : 'info'">{{ row.isActive ? '在职' : '离任' }}</el-tag></template></el-table-column>
+                <el-table-column prop="phone" label="电话" width="130" />
                 <el-table-column prop="tenureYears" label="任职年限" width="85" sortable />
                 <el-table-column prop="fundScope" label="分管资金(万)" width="130" sortable />
                 <el-table-column prop="auditCount" label="审计次数" width="85" align="center" />
@@ -201,9 +207,11 @@ onMounted(() => fetchLeaderTable())
         <el-dialog v-model="dialogVisible" :title="dialogTitle" width="550px" draggable :close-on-click-modal="false">
             <el-form ref="formRef" :model="leaderForm" :rules="rules" label-width="110px">
                 <el-row :gutter="16"><el-col :span="12"><el-form-item label="姓名" prop="leaderName"><el-input v-model="leaderForm.leaderName" /></el-form-item></el-col><el-col :span="12"><el-form-item label="工号" prop="staffId"><el-input v-model="leaderForm.staffId" /></el-form-item></el-col></el-row>
-                <el-form-item label="所属单位"><el-input v-model="leaderForm.unitName" placeholder="请输入/选择所属单位" /></el-form-item>
-                <el-row :gutter="16"><el-col :span="12"><el-form-item label="职务" prop="position"><el-input v-model="leaderForm.position" /></el-form-item></el-col><el-col :span="12"><el-form-item label="是否在职"><el-radio-group v-model="leaderForm.isActive"><el-radio :value="1">在职</el-radio><el-radio :value="0">离任</el-radio></el-radio-group></el-form-item></el-col></el-row>
-                <el-row :gutter="16"><el-col :span="12"><el-form-item label="任职起始"><el-date-picker v-model="leaderForm.tenureStartDate" type="date" style="width:100%" /></el-form-item></el-col><el-col :span="12"><el-form-item label="分管资金(万)"><el-input-number v-model="leaderForm.fundScope" :min="0" :precision="2" style="width:100%" /></el-form-item></el-col></el-row>
+                <el-form-item label="所属单位"><el-select v-model="leaderForm.unitName" placeholder="请选择所属单位" filterable style="width:100%" allow-create><el-option v-for="u in unitSelectList" :key="u.unitId" :label="u.unitName" :value="u.unitName" /></el-select></el-form-item>
+                <el-row :gutter="16"><el-col :span="12"><el-form-item label="职务" prop="position"><el-select v-model="leaderForm.position" placeholder="请选择职务" filterable allow-create style="width:100%"><el-option v-for="p in positionOptions" :key="p" :label="p" :value="p" /></el-select></el-form-item></el-col><el-col :span="12"><el-form-item label="是否在职"><el-radio-group v-model="leaderForm.isActive"><el-radio :value="1">在职</el-radio><el-radio :value="0">离任</el-radio></el-radio-group></el-form-item></el-col></el-row>
+                <el-row :gutter="16"><el-col :span="12"><el-form-item label="联系电话"><el-input v-model="leaderForm.phone" placeholder="手机号" /></el-form-item></el-col><el-col :span="12"><el-form-item label="分管资金(万)"><el-input-number v-model="leaderForm.fundScope" :min="0" :precision="2" style="width:100%" disabled /></el-form-item></el-col></el-row>
+                <el-row :gutter="16"><el-col :span="12"><el-form-item label="任职起始"><el-date-picker v-model="leaderForm.tenureStartDate" type="date" style="width:100%" /></el-form-item></el-col></el-row>
+                <el-form-item label="审计结论"><el-input v-model="leaderForm.latestAuditConclusion" type="textarea" :rows="2" placeholder="最近审计结论..." /></el-form-item>
             </el-form>
             <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" @click="submitLeader">确认</el-button></template>
         </el-dialog>
@@ -253,8 +261,8 @@ onMounted(() => fetchLeaderTable())
         <!-- 履历添加/编辑弹窗 -->
         <el-dialog v-model="careerFormVisible" :title="isEditCareer ? '编辑任职履历' : '添加任职履历'" width="500px" draggable :close-on-click-modal="false">
             <el-form :model="careerForm" label-width="100px">
-                <el-form-item label="单位名称"><el-input v-model="careerForm.unitName" placeholder="请输入单位名称" /></el-form-item>
-                <el-form-item label="职务"><el-input v-model="careerForm.position" placeholder="请输入职务" /></el-form-item>
+                <el-form-item label="单位名称"><el-select v-model="careerForm.unitName" placeholder="请选择单位" filterable allow-create style="width:100%"><el-option v-for="u in unitSelectList" :key="u.unitId" :label="u.unitName" :value="u.unitName" /></el-select></el-form-item>
+                <el-form-item label="职务"><el-select v-model="careerForm.position" placeholder="请选择职务" filterable allow-create style="width:100%"><el-option v-for="p in positionOptions" :key="p" :label="p" :value="p" /></el-select></el-form-item>
                 <el-row :gutter="16"><el-col :span="12"><el-form-item label="开始日期"><el-date-picker v-model="careerForm.startDate" type="date" placeholder="选择日期" style="width:100%" value-format="YYYY-MM-DD" /></el-form-item></el-col><el-col :span="12"><el-form-item label="结束日期"><el-date-picker v-model="careerForm.endDate" type="date" placeholder="留空表示至今" style="width:100%" value-format="YYYY-MM-DD" /></el-form-item></el-col></el-row>
                 <el-form-item label="职责描述"><el-input v-model="careerForm.dutyDescription" type="textarea" :rows="2" placeholder="分管工作描述" /></el-form-item>
                 <el-form-item label="分管资金(万)"><el-input-number v-model="careerForm.fundScope" :min="0" :precision="2" style="width:100%" /></el-form-item>
