@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.AuditUnitMapper">
+    <select id="findList" resultType="com.audit.entity.AuditUnit">
+        SELECT * FROM audit_object_unit WHERE 1=1
+        <if test="keyword != null"> AND (unit_name LIKE CONCAT('%',#{keyword},'%') OR unit_id LIKE CONCAT('%',#{keyword},'%'))</if>
+        <if test="category != null"> AND category = #{category}</if>
+        ORDER BY create_time DESC
+    </select>
+    <select id="findByUnitId" resultType="com.audit.entity.AuditUnit">SELECT * FROM audit_object_unit WHERE unit_id = #{unitId}</select>
+    <insert id="insert">
+        INSERT INTO audit_object_unit (unit_id, unit_code, unit_name, category, category_name, establishment_count, fund_scale, leader_in_charge, leader_in_charge_phone, finance_contact, finance_contact_phone, address, setup_date, total_audit_count, latest_audit_date, pending_rectify_count)
+        VALUES (#{unitId}, #{unitCode}, #{unitName}, #{category}, #{categoryName}, #{establishmentCount}, #{fundScale}, #{leaderInCharge}, #{leaderInChargePhone}, #{financeContact}, #{financeContactPhone}, #{address}, #{setupDate}, #{totalAuditCount}, #{latestAuditDate}, #{pendingRectifyCount})
+    </insert>
+    <update id="update">
+        UPDATE audit_object_unit SET
+        <if test="unitName != null">unit_name=#{unitName},</if>
+        <if test="category != null">category=#{category},</if>
+        <if test="establishmentCount != null">establishment_count=#{establishmentCount},</if>
+        <if test="fundScale != null">fund_scale=#{fundScale},</if>
+        <if test="leaderInCharge != null">leader_in_charge=#{leaderInCharge},</if>
+        <if test="leaderInChargePhone != null">leader_in_charge_phone=#{leaderInChargePhone},</if>
+        <if test="financeContact != null">finance_contact=#{financeContact},</if>
+        <if test="financeContactPhone != null">finance_contact_phone=#{financeContactPhone},</if>
+        unit_name=#{unitName} WHERE unit_id=#{unitId}
+    </update>
+    <delete id="deleteByUnitId">DELETE FROM audit_object_unit WHERE unit_id=#{unitId}</delete>
+    <update id="incrementAuditStats">
+        UPDATE audit_object_unit SET total_audit_count=IFNULL(total_audit_count,0)+1, latest_audit_date=NOW(), pending_rectify_count=#{pending} WHERE unit_id=#{unitId}
+    </update>
+    <update id="incrementAuditCount">
+        UPDATE audit_object_unit SET total_audit_count=IFNULL(total_audit_count,0)+1, latest_audit_date=NOW() WHERE unit_id=#{unitId}
+    </update>
+    <update id="updateLatestAuditDate">UPDATE audit_object_unit SET latest_audit_date=NOW() WHERE unit_id=#{unitId}</update>
+    <select id="findLeaderNamesByUnitName" resultType="string">SELECT leader_name FROM audit_object_leader WHERE current_unit_name=#{unitName} AND is_active=1</select>
+    <select id="findAllLeaders" resultType="map">SELECT leader_name, phone FROM audit_object_leader WHERE phone IS NOT NULL</select>
+</mapper>

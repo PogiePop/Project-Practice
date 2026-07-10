@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.audit.mapper.UserMapper">
+    <select id="login" resultType="map">SELECT username, real_name as realName, staff_id as staffId, department, position, phone, email, role, role_level as roleLevel, avatar, last_login as lastLogin FROM sys_user WHERE username=#{username} AND password=#{password}</select>
+    <select id="findByUsername" resultType="map">SELECT id, username, real_name as realName, staff_id as staffId, department, position, phone, email, role, role_level as roleLevel, avatar, last_login as lastLogin FROM sys_user WHERE username=#{username}</select>
+    <select id="findById" resultType="map">SELECT id, username, real_name as realName, staff_id as staffId, department, position, phone, email, role, role_level as roleLevel, avatar, last_login as lastLogin FROM sys_user WHERE id=#{id}</select>
+    <select id="findByUsernameWithPassword" resultType="map">SELECT id, username, password, real_name as realName, staff_id as staffId, department, position, phone, email, role, role_level as roleLevel, avatar, last_login as lastLogin FROM sys_user WHERE username=#{username}</select>
+    <update id="update">UPDATE sys_user SET real_name=#{realName}, phone=#{phone}, email=#{email}, department=#{department}, position=#{position} WHERE username=#{username}</update>
+    <update id="changePassword">UPDATE sys_user SET password=#{newPassword} WHERE username=#{username} AND password=#{oldPassword}</update>
+    <select id="findAll" resultType="map">SELECT username, real_name as realName, staff_id as staffId, department, position, phone, email, role, role_level as roleLevel FROM sys_user WHERE 1=1<if test="keyword != null"> AND (username LIKE CONCAT('%',#{keyword},'%') OR real_name LIKE CONCAT('%',#{keyword},'%'))</if> ORDER BY role_level, create_time</select>
+    <insert id="insertUser">INSERT INTO sys_user (username, password, real_name, staff_id, department, position, phone, email, role, role_level) VALUES (#{username},#{password},#{realName},#{staffId},#{department},#{position},#{phone},#{email},'AUDITOR',#{roleLevel})</insert>
+    <update id="updateUser">UPDATE sys_user SET real_name=#{realName}, staff_id=#{staffId}, department=#{department}, position=#{position}, phone=#{phone}, email=#{email}, role_level=#{roleLevel} WHERE username=#{username}</update>
+    <delete id="deleteUser">DELETE FROM sys_user WHERE username=#{username}</delete>
+    <update id="resetPassword">UPDATE sys_user SET password=#{password} WHERE username=#{username}</update>
+    <update id="updatePassword">UPDATE sys_user SET password=#{password} WHERE id=#{userId}</update>
+</mapper>

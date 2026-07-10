@@ -1,0 +1,35 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/project_practice?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  # ==================== Redis配置 ====================
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 123456
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+
+# ==================== JWT配置 ====================
+jwt:
+  secret: "c2VjdXJlLTI1Ni1iaXQta2V5LWZvci1hdWRpdC1zeXN0ZW0tand0LWhzMjU2"
+  expiration: 7200  # 过期时间(秒), 默认2小时
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.audit.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
